@@ -1106,18 +1106,20 @@ rb_ary_last(int argc, VALUE *argv, VALUE ary)
  *     ary.fetch(index, default )          -> obj
  *     ary.fetch(index) {|index| block }   -> obj
  *
- *  Tries to return the element at position <i>index</i>. If the index
- *  lies outside the array, the first form throws an
- *  <code>IndexError</code> exception, the second form returns
- *  <i>default</i>, and the third form returns the value of invoking
- *  the block, passing in the index. Negative values of <i>index</i>
- *  count from the end of the array.
+ *  Tries to return the element at position <i>index</i>, but throws an
+ *  <code>IndexError</code> exception, if the referenced index lies outside of
+ *  the array bounds. This error can be prevented by supplying a second
+ *  argument, which will act as a <i>default</i> value. Alternatively, if the
+ *  second argument is a block, it will only be executed when an invalid index
+ *  is referenced. Negative values of <i>index</i> count from the end of the
+ *  array.
  *
  *     a = [ 11, 22, 33, 44 ]
  *     a.fetch(1)               #=> 22
  *     a.fetch(-1)              #=> 44
  *     a.fetch(4, 'cat')        #=> "cat"
- *     a.fetch(4) { |i| i*i }   #=> 16
+ *     a.fetch(100) {|i| puts "#{i} is out of bounds" }
+ *     #=> "100 is out of bounds"
  */
 
 static VALUE
@@ -3668,7 +3670,7 @@ rb_ary_compact(VALUE ary)
  *
  *  Returns the number of elements.  If an argument is given, counts
  *  the number of elements which equals to <i>obj</i>.  If a block is
- *  given, counts the number of elements yielding a true value.
+ *  given, counts the number of elements for which the block returns true.
  *
  *     ary = [1, 2, 4, 2]
  *     ary.count             #=> 4
@@ -4652,267 +4654,222 @@ rb_ary_drop_while(VALUE ary)
  * assumed to be relative to the end of the array---that is, an index of -1
  * indicates the last element of the array, -2 is the next to last
  * element in the array, and so on.
-
+ *
  * == Creating Arrays
  * A new array can be created by using the literal constructor
  * <code>[]</code>. Arrays can be heterogenous, meaning that
  * they can contain different types of objects. For example, the
  * array below contains an Integer, a String and a Float:
-
+ *
  *    ary = [1, "two", 3.0] #=> [1, "two", 3.0]
-
+ *
  * An array can also be created by explicitly calling +Array.new+ with zero,
- * one or two arguments. If no arguments are supplied, an empty array gets
- * created
-
+ * one (the initial size of the Array) or two arguments (the initial size and
+ * an object reference).
+ *
  *    ary = Array.new #=> []
-
- * The first optional argument to the constructor determines the initial size
- * of the array. If only one argument is given, an array of that size
- * gets created with each element set to nil.
-
  *    Array.new(3) #=> [nil, nil, nil]
-
- * The second argument to the initializer can be an object of any type.
- * This will populate the new array with identical "copies" of the same
- * object, i.e. it references the same object. This is only recommended in
- * cases when you need to instantiate arrays with natively immutable objects
- * such +Symbols+, +Fixnums+, true/false, etc.
-
- *    arr = Array.new(3, true)  #=> [true, true, true]
-
+ *    Array.new(3, true) #=> [0, 0, 0]
+ *
+ * Note that the second argument populates the array with identical "copies" of
+ * the same object, i.e. it references the same object. Therefore, it is only
+ * recommended in cases when you need to instantiate arrays with natively
+ * immutable objects such +Symbols+, +Fixnums+, true/false, etc.
+ *
  * To create arrays with non-identical copies of the same type of object, a
  * block can be passed instead. This method is safe to use with mutable
  * objects such as hashes, strings or other arrays:
-
+ *
  *    Array.new(4) { Hash.new } #=> [{}, {}, {}, {}]
-
+ *
  * This is also a quick way to build up multi-dimensional arrays:
-
+ *
  *    empty_table = Array.new(3) { Array.new(3) }
  *    #=> [[nil, nil, nil], [nil, nil, nil], [nil, nil, nil]]
-
+ *
  * == Example Usage
-
+ *
  * In addition to the methods it mixes in through the Enumerable module, the
  * Array class has proprietary methods for accessing, searching and otherwise
  * manipulating arrays. Some of the more common ones are illustrated below.
-
+ *
  * == Accessing Elements
-
- * Elements in an array can be retrieved using the <code>Array#[]</code>
- * method. It can take a single integer argument (a numeric index), a pair of
- * arguments (start and length) or a range.
-
- * === Single numeric index
-
- * <code>Array#[]</code> called with a single numeric argument returns the
- * element at the specified index. If an invalid index is referenced, nil
- * is returned.
-
- *    arr = ['a', 'b', 'c']
- *    arr[1] #=> 'b'
- *    arr[100] #=> nil
-
- * If a negative integer is passed to <code>Array#[]</code>, the element is
- * retrieved by counting from the end. An index of -1 indicates the last
- * element of the array, -2 is the next to last element in the array,
- * and so on.
-
+ *
+ * Elements in an array can be retrieved using the <code>Array#[]</code> method.
+ * It can take a single integer argument (a numeric index), a pair of arguments
+ * (start and length) or a range.
+ *
  *    arr = [1, 2, 3, 4, 5, 6]
+ *    arr[2] #=> 3
+ *    arr[100] #=> nil
  *    arr[-3] #=> 4
- *    arr[-100] #=> nil
-
- * Another way to access a particular array element is by using the
- * <code>Array#at</code> method
-
+ *    arr[2, 3] #=> [3, 4, 5]
+ *    arr[1..4] #=> [2, 3, 4, 5]
+ *
+ * Another way to access a particular array element is by using the #at method
+ *
  *    arr.at(0) #=> 1
-
- * === Retrieving a Subarray Using <code>Array[start, length]</code>
-
- * By supplying two numeric parameters, it is possible to get back a
- * consecutive subset of elements. The first integer represents
- * the start index while the second counts the number of items from that
- * start index:
-
+ *
+ * The #slice method works in an identical manner to <code>Array#[]</code>.
+ *
+ * To raise an error for indices outside of the array bounds or else to provide
+ * a default value when that happens, you can use #fetch.
+ *
  *    arr = ['a', 'b', 'c', 'd', 'e', 'f']
- *    arr[2, 3] #=> ['c', 'd', 'e']
-
- * === Retrieving a Subarray Using a Range
-
- *    arr[1..4] #=> ['b', 'c', 'd', 'e']
- *    arr[3..100] #=> ['d', 'e', 'f']
-
- * The +slice+ method works in an identical manner to <code>Array#[]</code>.
-
- * The special methods +first+ and +last+ will return the first and last
- * elements of an array, respectively.
-
- *    arr.first #=> 'a'
- *    arr.last #=> 'e'
-
- * === Providing Fallbacks
-
- * To raise an error for indices outside of the array bounds or else
- * to provide a default value when that happens, you can use +fetch+:
-
- * Fetch works just like <code>Array#[]</code> if a valid index gets supplied.
-
- *    arr = ['a', 'b', 'c', 'd', 'e', 'f']
- *    arr.fetch(4) #=> "c"
-
- * With an invalid index it raises an +IndexError+
-
  *    arr.fetch(100) #=> IndexError: index 100 outside of array bounds: -6...6
-
- * To prevent the error, you can supply a second argument which will act as a
- * default value:
-
  *    arr.fetch(100, "oops") #=> "oops"
-
- * If you call +fetch+ with a block as a second argument, it will execute the
- * block which has access to the referenced index
-
- *    arr.fetch(100) {|i| puts "#{i} is out of bounds" }
- *    #=> "100 is out of bounds"
-
+ *
+ * The special methods #first and #last will return the first and last
+ * elements of an array, respectively.
+ *
+ *    arr.first #=> 1
+ *    arr.last #=> 6
+ *
+ * To return the first n elements of an array, use #take
+ *
+ *    arr.take(3) #=> [1, 2, 3]
+ *
+ * #drop does the opposite of #take, by returning the elements after n elements
+ * have been dropped:
+ *
+ *     arr.drop(3) #=> [4, 5, 6]
+ *
  * == Obtaining Information about an Array
-
+ *
  * Arrays keep track of their own length at all times. To query an array about
- * the number of elements it contains, use +length+ or +count+
-
+ * the number of elements it contains, use #length, #count or #size.
+ *
  *    browsers = ['Chrome', 'Firefox', 'Safari', 'Opera', 'IE']
  *    browsers.length #=> 5
  *    browsers.count #=> 5
-
+ *
  * To check whether an array contains any elements at all
-
+ *
  *    browsers.empty? #=> false
-
+ *
  * To check whether a particular item is included in the array
-
+ *
  *    browsers.include?('Konqueror') #=> false
-
+ *
  * == Adding Items to Arrays
-
- * Items can be added to the <b>end</b> of an array by using either +push+ or
+ *
+ * Items can be added to the <b>end</b> of an array by using either #push or
  * <code><<</code>
-
+ *
  *    arr = [1, 2, 3, 4]
  *    arr.push(5) #=> [1, 2, 3, 4, 5]
  *    arr << 6 #=> [1, 2, 3, 4, 5, 6]
-
- * +unshift+ will add a new item to the <b>beginning</b> of an array.
-
+ *
+ * #unshift will add a new item to the <b>beginning</b> of an array.
+ *
  *    arr.unshift(0) #=> [0, 1, 2, 3, 4, 5, 6]
-
- * With +insert+ you can add a new element to an array at any position.
-
+ *
+ * With #insert you can add a new element to an array at any position.
+ *
  *    arr.insert(3, 'apple')  #=> [0, 1, 2, 'apple', 3, 4, 5, 6]
-
- * Using the +insert+ method, you can also insert multiple values at once:
-
+ *
+ * Using the #insert method, you can also insert multiple values at once:
+ *
  *    arr.insert(3, 'orange', 'pear', 'grapefruit')
  *    #=> [0, 1, 2, "orange", "pear", "grapefruit", "apple", 3, 4, 5, 6]
-
+ *
  * == Removing Items from an Array
-
- * The method +pop+ removes the <b>last element</b> in an array and also
+ *
+ * The method #pop removes the <b>last element</b> in an array and also
  * returns it:
-
+ *
  *    arr =  [1, 2, 3, 4, 5, 6]
  *    arr.pop #=> 6
  *    arr #=> [1, 2, 3, 4, 5]
-
+ *
  * To retrieve and at the same time remove the <b>first item</b>, you can use
- * +shift+
-
+ * #shift
+ *
  *    arr.shift #=> 1
  *    arr #=> [2, 3, 4, 5]
-
+ *
  * To delete an element at a particular <b>index</b>
-
+ *
  *    arr.delete_at(2) #=> 4
  *    arr #=> [2, 3, 5]
-
- * To delete a <b>particular element</b> anywhere in an array, use +delete+
-
+ *
+ * To delete a <b>particular element</b> anywhere in an array, use #delete
+ *
  *    arr = [1, 2, 2, 3]
  *    arr.delete(2) #=> [1, 3]
-
+ *
  * A useful method if you need to <b>remove +nil+ values</b> from an array is
- * +compact+:
-
+ * #compact:
+ *
  *    arr = ['foo', 0, nil, 'bar', 7, 'baz', nil]
  *    arr.compact #=> ['foo', 0, 'bar', 7, 'baz']
  *    arr #=> ['foo', 0, nil, 'bar', 7, 'baz', nil]
  *    arr.compact! #=> ['foo', 0, 'bar', 7, 'baz']
  *    arr #=> ['foo', 0, 'bar', 7, 'baz']
-
+ *
  * Another common need is to <b>remove duplicate elements</b> from an array.
- * It has a non-destructive (+uniq+) and a destructive method (+uniq!+)
-
+ * It has a non-destructive (#uniq) and a destructive method (#uniq!)
+ *
  *    arr = [2, 5, 6, 556, 6, 6, 8, 9, 0, 123, 556]
  *    arr.uniq #=> [2, 5, 6, 556, 8, 9, 0, 123]
-
+ *
  * == Iterating over Arrays
-
+ *
  * Like all classes that include the Enumerable module, +Array+ has an +each+
  * method, which defines what elements should be iterated over and how. In
- * case of <code>Array#each</code> all elements in the Array instance are
- * yielded to the supplied block in sequence and only once. Note that this
+ * case of Array's #each all elements in the Array instance are yielded
+ * to the supplied block in sequence and only once. Note that this
  * operation leaves the array unchanged.
-
+ *
  *    arr = [1, 2, 3, 4, 5]
  *    arr.each {|a| print a -= 10, " " } #-9 -8 -7 -6 -5 => [1, 2, 3, 4, 5]
-
- * Another sometimes useful iterator is +reverse_each+ which will iterate over
+ *
+ * Another sometimes useful iterator is #reverse_each which will iterate over
  * the elements in the array in reverse order.
-
+ *
  *    words = %w{rats live on no evil star}
  *    str = ""
  *    words.reverse_each {|word| str += "#{word.reverse} " }
  *    str #=> "rats live on no evil star"
-
- * The +map+ method can be used to create a new array based on the original
+ *
+ * The #map method can be used to create a new array based on the original
  * array, but with the values modified according to the supplied block:
-
+ *
  *    arr.map {|a| 2*a }  #=> [2, 4, 6, 8, 10]
  *    arr #=> [1, 2, 3, 4, 5]
  *    arr.map! {|a| a**2 } #=> [1, 4, 9, 16, 25]
  *    arr #=> [1, 4, 9, 16, 25]
-
+ *
  * == Selecting Items from an Array
  *
- * Elements can be selected from an array in a destructive or a
- * non-destructive manner. While the destructive operations will modify the
- * array they were called on, the non-destructive methods usually return a
- * new array with the selected elements, but leave the original array
- * unchanged.
-
+ * Elements can be selected from an array according to criteria defined in a
+ * block. The selection can happen in a destructive or a non-destructive manner.
+ * While the destructive operations will modify the array they were called on,
+ * the non-destructive methods usually return a new array with the selected
+ * elements, but leave the original array unchanged.
+ *
  * === Non-destructive Selection
  *    arr = [1, 2, 3, 4, 5, 6]
  *    arr.select {|a| a > 3 } #=> [4, 5, 6]
  *    arr.reject {|a| a < 3 } #=> [4, 5, 6]
  *    arr.drop_while {|a| a < 4 } #=> [4, 5, 6]
  *    arr #=> [1, 2, 3, 4, 5, 6]
-
+ *
  * === Destructive Selection
-
- * <code>Array#select!</code> and <code>Array#reject!</code> are the
- * corresponding destructive methods to <code>Array#select</code> and
- * <code>Array#reject</code>.
-
- * Similar to +select+ vs. +reject+, +delete_if+ and +keep_if+ have the exact
+ *
+ * #select! and #reject! are the corresponding destructive methods to #select
+ * and #reject
+ *
+ * Similar to #select vs. #reject, #delete_if and #keep_if have the exact
  * opposite result when supplied with the same block:
-
+ *
  *    arr.delete_if {|a| a < 4 } #=> [4, 5, 6]
  *    arr #=> [4, 5, 6]
  *
  *    arr = [1, 2, 3, 4, 5, 6]
  *    arr.keep_if {|a| a < 4 } #=> [1, 2, 3]
  *    arr #=> [1, 2, 3]
-
+ *
 */
 
 void
